@@ -36,13 +36,18 @@ def welcome():
     return (
         f"Welcome to the Climate Data (Honolulu, Hawaii) API!<br/>"
         f"Available Routes:<br/>"
-        f"/api/v1.0/precipitation<br/>"
-        f"/api/v1.0/last_year_data<br/>"
+        f"STATIC ROUTES<br/>"
+        f"/api/v1.0/precipitation_route/precipitation<br/>"
+        f"/api/v1.0/precipitation_route/precipitation/last_year_data<br/>"
         f"/api/v1.0/station_routes<br/>"
-        f"/api/v1.0/most_active_station<br/>"
-        f"/api/v1.0/most_active_station_last_year_data<br/>"
+        f"/api/v1.0/tobs_route/most_active_station<br/>"
+        f"/api/v1.0/tobs_route/most_active_station_last_year_data<br/>"
+        f"DYNAMIC ROUTES<br/>"
+        f"/api/v1.0/measurement_data/start_date/<start_date><br/>"
+        f"/api/v1.0/date_range_data/start_date/<start_date>/end_date/<end_date>"
     )
-@app.route("/api/v1.0/precipitation")
+# A precipitation route that:Returns json with the date as the key and the value as the precipitation
+@app.route("/api/v1.0/precipitation_route/precipitation")
 def precipitation():
     session = Session(engine)
     results = session.query(Measurement.date, Measurement.prcp).all()
@@ -51,14 +56,14 @@ def precipitation():
     for date, prcp in results: 
         precipitation_data = {}
         precipitation_data[date] = prcp
-        # precipitation_data["prcp"] = prcp
         output.append(precipitation_data)
     return jsonify(output)
 
-@app.route("/api/v1.0/last_year_data")
+# A precipitation route that:Only returns the jsonified precipitation data for the last year in the database
+@app.route("/api/v1.0/precipitation_route/precipitation/last_year_data")
 def last_year_data():
     session = Session(engine)
-    # Starting from the most recent data point in the database. 
+# Starting from the most recent data point in the database. 
     max_date_str = session.query(func.max(Measurement.date)).scalar()
     max_date = datetime.strptime(max_date_str, '%Y-%m-%d').date()
     print(max_date)
@@ -76,7 +81,7 @@ def last_year_data():
         output.append(last_year_data)
     return jsonify(output)
 
-# A stations route that:Returns jsonified data of all of the stations in the database (3 points)
+# A stations route that:Returns jsonified data of all of the stations in the database 
 @app.route("/api/v1.0/station_routes")
 def station_routes():
     session = Session(engine)
@@ -88,12 +93,13 @@ def station_routes():
     return jsonify(output)
 
 # A tobs route that:Returns jsonified data for the most active station (USC00519281)
-@app.route("/api/v1.0/most_active_station")
+@app.route("/api/v1.0/tobs_route/most_active_station")
 def most_active_station():
     session = Session(engine)
     results = session.query(Measurement.station, func.count().label('observation_count')).\
         group_by(Measurement.station).\
         order_by(func.count().desc())
+# Extracting the most active station from results query and assigning only the station part to a "most_active_station" variable 
     most_active_station_row = results.first()
     most_active_station = most_active_station_row.station
     most_active_station_details = session.query(Measurement.station, Measurement.prcp, Measurement.tobs)\
@@ -110,7 +116,7 @@ def most_active_station():
     return jsonify(output)
 
 # A tobs route that: Only returns the jsonified data for the last year of data 
-@app.route("/api/v1.0/most_active_station_last_year_data")
+@app.route("/api/v1.0/tobs_route/most_active_station_last_year_data")
 def most_active_station_last_year_data():
     session = Session(engine)
     most_active_station_id = 'USC00519281'
@@ -124,8 +130,6 @@ def most_active_station_last_year_data():
         .filter(Measurement.station == most_active_station_id)\
             .filter(Measurement.date >= one_year_ago)\
             .all()
-# Execute the query and retrieve the results as a list of temperatures
-    # temperatures = [result[0] for result in results]
     session.close()
     output = []
     for date, tobs in results: 
@@ -138,10 +142,8 @@ def most_active_station_last_year_data():
 # API Dynamic Route
 # A start route that: Accepts the start date as a parameter from the URL
 # Returns the min, max, and average temperatures calculated from the given start date to the end of the dataset
-@app.route("/api/v1.0/measurement_data/search/start_date/<start_date>")
-def start_date(start_date):
-    try:
-        date_to_evaluate = start_date.replace(" ", "").lower()
+@app.route("/api/v1.0/measurement_data/start_date/<start_date>")
+def measurement_data(start_date):
         session = Session(engine)
         results = session.query(func.min(Measurement.tobs), func.max(Measurement.tobs), func.avg(Measurement.tobs))\
                  .filter(Measurement.date >= start_date)\
@@ -155,9 +157,25 @@ def start_date(start_date):
             temp_data["average_temperature"] = avg_temp
             output.append(temp_data)
         return jsonify(output)
-    except:
-        return jsonify({"message": "An error occurred."}), 500
     
+# A start/end route that:Accepts the start and end dates as parameters from the URL 
+# Returns the min, max, and average temperatures calculated from the given start date to the given end date 
+@app.route("/api/v1.0/date_range_data/start_date/<start_date>/end_date/<end_date>")
+def date_range_data(start_date, end_date):
+    session = Session(engine)
+    results = session.query(func.min(Measurement.tobs), func.max(Measurement.tobs), func.avg(Measurement.tobs)) \
+                     .filter(Measurement.date >= start_date) \
+                     .filter(Measurement.date <= end_date) \
+                     .all()
+    session.close()
+    output = []
+    for min_temp, max_temp, avg_temp in results:
+        temp_data = {}
+        temp_data["minimum_temperature"] = min_temp
+        temp_data["maximum_temperature"] = max_temp
+        temp_data["average_temperature"] = avg_temp
+        output.append(temp_data)
+    return jsonify(output)
 
 if __name__ == '__main__':
     app.run(debug=True)
